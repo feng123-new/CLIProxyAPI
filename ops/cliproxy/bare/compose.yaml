@@ -1,0 +1,29 @@
+name: cliproxy-official
+
+services:
+  cliproxy:
+    image: ${CLI_PROXY_IMAGE:?CLI_PROXY_IMAGE is required}
+    pull_policy: never
+    container_name: cliproxy-official
+    command: ["./CLIProxyAPI", "-config", "/CLIProxyAPI/config/config.yaml"]
+    network_mode: host
+    environment:
+      MANAGEMENT_STATIC_PATH: /CLIProxyAPI/static
+    volumes:
+      - ./config:/CLIProxyAPI/config:rw
+      - ./auths:/root/.cli-proxy-api:rw
+      - ./static:/CLIProxyAPI/static:ro
+      - ./plugins:/CLIProxyAPI/plugins:rw
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"

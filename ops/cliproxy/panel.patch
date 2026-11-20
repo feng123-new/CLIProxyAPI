@@ -1,0 +1,484 @@
+diff --git a/src/features/authFiles/components/AuthFileQuotaSection.tsx b/src/features/authFiles/components/AuthFileQuotaSection.tsx
+index 7fb45be..c1a49f9 100644
+--- a/src/features/authFiles/components/AuthFileQuotaSection.tsx
++++ b/src/features/authFiles/components/AuthFileQuotaSection.tsx
+@@ -8,6 +8,7 @@ import {
+ } from '@/stores';
+ import type { AuthFileItem, ClaudeQuotaState } from '@/types';
+ import { getStatusFromError, resolveQuotaErrorMessage } from '@/utils/quota';
++import { AntigravityVerificationError } from '@/utils/quota/antigravityVerification';
+ import { getQuotaCacheKey } from '@/utils/quota/identity';
+ import { isRuntimeOnlyAuthFile, type QuotaProviderType } from '@/features/authFiles/constants';
+ import { Button } from '@/components/ui/Button';
+@@ -90,7 +91,11 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
+       commitIfQuotaCacheCurrent(cacheGeneration, () => {
+         updateQuotaState((prev) => ({
+           ...prev,
+-          [cacheKey]: adapter.buildErrorState(message, status),
++          [cacheKey]: adapter.buildErrorState(
++            message,
++            status,
++            err instanceof AntigravityVerificationError ? err.verificationUrl : undefined
++          ),
+         }));
+         showNotification(
+           t('auth_files.quota_refresh_failed', { name: file.name, message }),
+@@ -184,11 +189,9 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
+         {t('codex_quota.reset_button')}
+       </Button>
+     ) : undefined;
+-  const quotaErrorMessage = resolveQuotaErrorMessage(
+-    t,
+-    quota?.errorStatus,
+-    quota?.error || t('common.unknown_error')
+-  );
++  const quotaErrorMessage = quota?.verificationUrl
++    ? t('antigravity_quota.verification_required')
++    : resolveQuotaErrorMessage(t, quota?.errorStatus, quota?.error || t('common.unknown_error'));
+ 
+   return (
+     <div className={styles.quotaSection}>
+@@ -208,6 +211,13 @@ export function AuthFileQuotaSection(props: AuthFileQuotaSectionProps) {
+           {t(`${adapter.i18nPrefix}.load_failed`, {
+             message: quotaErrorMessage,
+           })}
++          {quota?.verificationUrl && (
++            <div>
++              <a href={quota.verificationUrl} target="_blank" rel="noopener noreferrer">
++                {t('antigravity_quota.open_verification', { defaultValue: 'Open Google verification' })}
++              </a>
++            </div>
++          )}
+         </div>
+       ) : quota && !retainedClaudeUsage ? (
+         <adapter.Body quota={quota} classes={compactQuotaClasses} />
+diff --git a/src/features/quota/components/QuotaCard.module.scss b/src/features/quota/components/QuotaCard.module.scss
+index efec78e..00cd48f 100644
+--- a/src/features/quota/components/QuotaCard.module.scss
++++ b/src/features/quota/components/QuotaCard.module.scss
+@@ -266,6 +266,10 @@
+ 
+ /* ---------- error ---------- */
+ 
++.verificationAction {
++  margin-top: 6px;
++}
++
+ .errorStrip {
+   font-size: 11.5px;
+   line-height: 1.5;
+diff --git a/src/features/quota/components/QuotaCard.tsx b/src/features/quota/components/QuotaCard.tsx
+index c334b3f..8f4b8f5 100644
+--- a/src/features/quota/components/QuotaCard.tsx
++++ b/src/features/quota/components/QuotaCard.tsx
+@@ -96,11 +96,9 @@ export function QuotaCard(props: QuotaCardProps) {
+       : entry.type;
+   const iconSrc = getAuthFileIcon(providerType, resolvedTheme);
+   const typeLabel = getTypeLabel(t, providerType);
+-  const errorMessage = resolveQuotaErrorMessage(
+-    t,
+-    quota?.errorStatus,
+-    quota?.error || t('common.unknown_error')
+-  );
++  const errorMessage = quota?.verificationUrl
++    ? t('antigravity_quota.verification_required')
++    : resolveQuotaErrorMessage(t, quota?.errorStatus, quota?.error || t('common.unknown_error'));
+   // Claude banked resets join the plan chip row; their expiry list follows it.
+   const showClaudeReset = entry.type === 'claude' && status === 'success';
+   const claudePlanItems = showClaudeReset ? (
+@@ -204,6 +202,18 @@ export function QuotaCard(props: QuotaCardProps) {
+         ) : status === 'error' ? (
+           <div className={styles.errorStrip} role="alert">
+             {t(`${adapter.i18nPrefix}.load_failed`, { message: errorMessage })}
++            {quota?.verificationUrl && (
++              <div className={styles.verificationAction}>
++                <a
++                  className={styles.actionPill}
++                  href={quota.verificationUrl}
++                  target="_blank"
++                  rel="noopener noreferrer"
++                >
++                  {t('antigravity_quota.open_verification', { defaultValue: 'Open Google verification' })}
++                </a>
++              </div>
++            )}
+           </div>
+         ) : quota && !retainedClaudeUsage ? (
+           <adapter.Body
+diff --git a/src/features/quota/hooks/useQuotaActions.ts b/src/features/quota/hooks/useQuotaActions.ts
+index 3a63319..6186b01 100644
+--- a/src/features/quota/hooks/useQuotaActions.ts
++++ b/src/features/quota/hooks/useQuotaActions.ts
+@@ -13,6 +13,7 @@ import {
+ } from '@/stores';
+ import type { AuthFileItem } from '@/types';
+ import { getStatusFromError } from '@/utils/quota';
++import { AntigravityVerificationError } from '@/utils/quota/antigravityVerification';
+ import { getQuotaCacheKey } from '@/utils/quota/identity';
+ import { enrichQuotaInBackground } from '../quotaEnrichment';
+ import { getQuotaMap, getQuotaSetter, type QuotaAdapter, type QuotaCardState } from '../providers';
+@@ -57,7 +58,11 @@ export function useQuotaActions(disableControls: boolean) {
+         commitIfQuotaCacheCurrent(cacheGeneration, () => {
+           setQuota((prev) => ({
+             ...prev,
+-            [cacheKey]: adapter.buildErrorState(message, status),
++            [cacheKey]: adapter.buildErrorState(
++              message,
++              status,
++              err instanceof AntigravityVerificationError ? err.verificationUrl : undefined
++            ),
+           }));
+           showNotification(
+             t('auth_files.quota_refresh_failed', { name: file.name, message }),
+diff --git a/src/features/quota/hooks/useQuotaBatchLoader.ts b/src/features/quota/hooks/useQuotaBatchLoader.ts
+index f9538b1..6c0876d 100644
+--- a/src/features/quota/hooks/useQuotaBatchLoader.ts
++++ b/src/features/quota/hooks/useQuotaBatchLoader.ts
+@@ -12,6 +12,7 @@ import { useCallback, useRef, useState } from 'react';
+ import { useTranslation } from 'react-i18next';
+ import { captureQuotaCacheGeneration, commitIfQuotaCacheCurrent } from '@/stores';
+ import { getStatusFromError } from '@/utils/quota';
++import { AntigravityVerificationError } from '@/utils/quota/antigravityVerification';
+ import { getQuotaCacheKey } from '@/utils/quota/identity';
+ import type { QuotaFileEntry } from '../logic';
+ import { QUOTA_ADAPTERS, getQuotaSetter, type QuotaCardState } from '../providers';
+@@ -25,6 +26,7 @@ interface BatchFetchResult {
+   data?: unknown;
+   error?: string;
+   errorStatus?: number;
++  verificationUrl?: string;
+ }
+ 
+ export function useQuotaBatchLoader() {
+@@ -79,6 +81,7 @@ export function useQuotaBatchLoader() {
+                     status: 'error',
+                     error: message,
+                     errorStatus: getStatusFromError(err),
++                    verificationUrl: err instanceof AntigravityVerificationError ? err.verificationUrl : undefined,
+                   };
+                 }
+               })
+@@ -98,7 +101,8 @@ export function useQuotaBatchLoader() {
+                         ? adapter.buildSuccessState(result.data)
+                         : adapter.buildErrorState(
+                             result.error || t('common.unknown_error'),
+-                            result.errorStatus
++                            result.errorStatus,
++                            result.verificationUrl
+                           );
+                     committedStates.set(result.cacheKey, nextState[result.cacheKey]);
+                   },
+diff --git a/src/features/quota/providers/antigravity/data.ts b/src/features/quota/providers/antigravity/data.ts
+index 0993bb6..ffdb018 100644
+--- a/src/features/quota/providers/antigravity/data.ts
++++ b/src/features/quota/providers/antigravity/data.ts
+@@ -18,6 +18,7 @@ import {
+   getApiCallErrorMessage,
+   type AntigravitySubscriptionSummary,
+ } from '@/services/api';
++import { AntigravityVerificationError, getAntigravityVerificationUrl } from '@/utils/quota/antigravityVerification';
+ import {
+   ANTIGRAVITY_QUOTA_URLS,
+   ANTIGRAVITY_REQUEST_HEADERS,
+@@ -138,6 +139,7 @@ const fetchAntigravityQuota = async (
+     .catch(() => null);
+ 
+   let lastError = '';
++  let verificationUrl: string | undefined;
+   let lastStatus: number | undefined;
+   let priorityStatus: number | undefined;
+   let hadSuccess = false;
+@@ -155,6 +157,9 @@ const fetchAntigravityQuota = async (
+       });
+ 
+       if (result.statusCode < 200 || result.statusCode >= 300) {
++        if (result.statusCode === 403) {
++          verificationUrl ??= getAntigravityVerificationUrl(result.body);
++        }
+         lastError = getApiCallErrorMessage(result);
+         lastStatus = result.statusCode;
+         if (result.statusCode === 403 || result.statusCode === 404) {
+@@ -210,7 +215,7 @@ const fetchAntigravityQuota = async (
+     }
+   }
+ 
+-  if (hadSuccess) {
++  if (hadSuccess && (!verificationUrl || collectedGroups.size > 0)) {
+     return {
+       groups: Array.from(collectedGroups.values()),
+       subscription: await subscriptionPromise,
+@@ -218,6 +223,12 @@ const fetchAntigravityQuota = async (
+     };
+   }
+ 
++  if (verificationUrl) {
++    throw new AntigravityVerificationError(
++      t('antigravity_quota.verification_required', { defaultValue: 'Google account verification required.' }),
++      verificationUrl
++    );
++  }
+   throw createStatusError(lastError || t('common.unknown_error'), priorityStatus ?? lastStatus);
+ };
+ 
+@@ -240,12 +251,13 @@ export const ANTIGRAVITY_CONFIG: QuotaProviderData<AntigravityQuotaState, Antigr
+     subscription: data.subscription,
+     serverTimeOffsetMs: data.serverTimeOffsetMs,
+   }),
+-  buildErrorState: (message, status) => ({
++  buildErrorState: (message, status, verificationUrl) => ({
+     status: 'error',
+     groups: [],
+     subscription: null,
+     serverTimeOffsetMs: null,
+     error: message,
+     errorStatus: status,
++    verificationUrl,
+   }),
+ };
+diff --git a/src/features/quota/providers/index.ts b/src/features/quota/providers/index.ts
+index 4b4b3a6..9a26ffe 100644
+--- a/src/features/quota/providers/index.ts
++++ b/src/features/quota/providers/index.ts
+@@ -33,6 +33,7 @@ export interface QuotaCardState {
+   status: 'idle' | 'loading' | 'success' | 'error';
+   error?: string;
+   errorStatus?: number;
++  verificationUrl?: string;
+ }
+ 
+ export interface QuotaAdapter {
+@@ -47,7 +48,7 @@ export interface QuotaAdapter {
+   storeSetter: keyof QuotaStore;
+   buildLoadingState: () => QuotaCardState;
+   buildSuccessState: (data: unknown) => QuotaCardState;
+-  buildErrorState: (message: string, status?: number) => QuotaCardState;
++  buildErrorState: (message: string, status?: number, verificationUrl?: string) => QuotaCardState;
+   Body: ComponentType<QuotaBodyProps<QuotaCardState>>;
+ }
+ 
+diff --git a/src/features/quota/providers/types.ts b/src/features/quota/providers/types.ts
+index 7b9ff2e..95daed6 100644
+--- a/src/features/quota/providers/types.ts
++++ b/src/features/quota/providers/types.ts
+@@ -57,5 +57,5 @@ export interface QuotaProviderData<TState, TData> {
+   storeSetter: keyof QuotaStore;
+   buildLoadingState: () => TState;
+   buildSuccessState: (data: TData) => TState;
+-  buildErrorState: (message: string, status?: number) => TState;
++  buildErrorState: (message: string, status?: number, verificationUrl?: string) => TState;
+ }
+diff --git a/src/i18n/locales/en.json b/src/i18n/locales/en.json
+index 13d00f6..63f63b6 100644
+--- a/src/i18n/locales/en.json
++++ b/src/i18n/locales/en.json
+@@ -442,6 +442,8 @@
+   },
+   "antigravity_quota": {
+     "title": "Antigravity Quota",
++    "verification_required": "Google account verification required.",
++    "open_verification": "Open Google verification",
+     "empty_title": "No Antigravity Auth Files",
+     "empty_desc": "Upload an Antigravity credential to view remaining quota.",
+     "idle": "Click here to refresh quota",
+diff --git a/src/i18n/locales/ko.json b/src/i18n/locales/ko.json
+index 5d29381..b108d99 100644
+--- a/src/i18n/locales/ko.json
++++ b/src/i18n/locales/ko.json
+@@ -441,6 +441,8 @@
+     "plan_ultra_lite": "Ultra Lite"
+   },
+   "antigravity_quota": {
++    "verification_required": "Google에서 이 계정의 확인을 요구합니다.",
++    "open_verification": "Google 계정 확인 열기",
+     "title": "Antigravity 할당량",
+     "empty_title": "Antigravity 인증 파일 없음",
+     "empty_desc": "남은 할당량을 확인하려면 Antigravity 자격 증명을 업로드하세요.",
+diff --git a/src/i18n/locales/ru.json b/src/i18n/locales/ru.json
+index 02c4f8f..690d925 100644
+--- a/src/i18n/locales/ru.json
++++ b/src/i18n/locales/ru.json
+@@ -444,6 +444,8 @@
+     "plan_ultra_lite": "Ultra Lite"
+   },
+   "antigravity_quota": {
++    "verification_required": "Google требует подтвердить этот аккаунт.",
++    "open_verification": "Открыть проверку Google",
+     "title": "Квота Antigravity",
+     "empty_title": "Файлы авторизации Antigravity отсутствуют",
+     "empty_desc": "Загрузите учётные данные Antigravity, чтобы увидеть оставшуюся квоту.",
+diff --git a/src/i18n/locales/tr.json b/src/i18n/locales/tr.json
+index 6716f04..1799e3c 100644
+--- a/src/i18n/locales/tr.json
++++ b/src/i18n/locales/tr.json
+@@ -441,6 +441,8 @@
+     "plan_ultra_lite": "Ultra Lite"
+   },
+   "antigravity_quota": {
++    "verification_required": "Google bu hesabın doğrulanmasını istiyor.",
++    "open_verification": "Google doğrulamasını aç",
+     "title": "Antigravity Kotası",
+     "empty_title": "Antigravity Kimlik Dosyası Yok",
+     "empty_desc": "Kalan Kotayı Görmek için Bir Antigravity Kimlik Bilgisi Yükle.",
+diff --git a/src/i18n/locales/vi.json b/src/i18n/locales/vi.json
+index 917e5b5..679365c 100644
+--- a/src/i18n/locales/vi.json
++++ b/src/i18n/locales/vi.json
+@@ -441,6 +441,8 @@
+     "plan_ultra_lite": "Ultra Lite"
+   },
+   "antigravity_quota": {
++    "verification_required": "Google yêu cầu xác minh tài khoản này.",
++    "open_verification": "Mở trang xác minh Google",
+     "title": "Quota Antigravity",
+     "empty_title": "Không có File xác thực Antigravity",
+     "empty_desc": "Tải lên credential Antigravity để xem quota còn lại.",
+diff --git a/src/i18n/locales/zh-CN.json b/src/i18n/locales/zh-CN.json
+index 26a4825..597e1fe 100644
+--- a/src/i18n/locales/zh-CN.json
++++ b/src/i18n/locales/zh-CN.json
+@@ -440,6 +440,8 @@
+   },
+   "antigravity_quota": {
+     "title": "Antigravity 额度",
++    "verification_required": "Google 要求验证此账号。",
++    "open_verification": "打开 Google 验证",
+     "empty_title": "暂无 Antigravity 认证",
+     "empty_desc": "上传 Antigravity 认证文件后即可查看额度。",
+     "idle": "点击此处刷新额度",
+diff --git a/src/i18n/locales/zh-TW.json b/src/i18n/locales/zh-TW.json
+index ca3d1b2..4eca946 100644
+--- a/src/i18n/locales/zh-TW.json
++++ b/src/i18n/locales/zh-TW.json
+@@ -440,6 +440,8 @@
+   },
+   "antigravity_quota": {
+     "title": "Antigravity 配額",
++    "verification_required": "Google 要求驗證此帳號。",
++    "open_verification": "開啟 Google 驗證",
+     "empty_title": "暫無 Antigravity 驗證",
+     "empty_desc": "上傳 Antigravity 驗證檔案後即可查看配額。",
+     "idle": "點擊此處重新整理配額",
+diff --git a/src/types/quota.ts b/src/types/quota.ts
+index 219ebe9..54ba745 100644
+--- a/src/types/quota.ts
++++ b/src/types/quota.ts
+@@ -266,6 +266,7 @@ export interface AntigravityQuotaState {
+   serverTimeOffsetMs?: number | null;
+   error?: string;
+   errorStatus?: number;
++  verificationUrl?: string;
+ }
+ 
+ /** A provider-defined numeric/currency value rendered above generic quota windows. */
+diff --git a/src/utils/quota/antigravityVerification.ts b/src/utils/quota/antigravityVerification.ts
+new file mode 100644
+index 0000000..0a6af5a
+--- /dev/null
++++ b/src/utils/quota/antigravityVerification.ts
+@@ -0,0 +1,41 @@
++import { isRecord } from '@/utils/helpers';
++
++export class AntigravityVerificationError extends Error {
++  readonly status = 403;
++
++  constructor(message: string, readonly verificationUrl: string) {
++    super(message);
++  }
++}
++
++export function getAntigravityVerificationUrl(body: unknown): string | undefined {
++  if (!isRecord(body) || !isRecord(body.error) || !Array.isArray(body.error.details)) {
++    return undefined;
++  }
++
++  const details = body.error.details.filter(isRecord);
++  const validation = details.find((detail) => detail.reason === 'VALIDATION_REQUIRED');
++  if (!validation) return undefined;
++
++  const urls = new Set<string>();
++  const addUrl = (value: unknown) => {
++    if (
++      typeof value === 'string' &&
++      /^https:\/\/accounts\.google\.com\/(?:v3\/)?signin\/continue(?:\?[^#\s]+)?$/.test(value)
++    ) {
++      urls.add(value);
++    }
++  };
++
++  if (isRecord(validation.metadata)) {
++    addUrl(validation.metadata.validation_url);
++    addUrl(validation.metadata.validationUrl);
++  }
++  for (const detail of details) {
++    if (detail['@type'] !== 'type.googleapis.com/google.rpc.Help' || !Array.isArray(detail.links)) {
++      continue;
++    }
++    for (const link of detail.links.filter(isRecord)) addUrl(link.url);
++  }
++  return urls.size === 1 ? urls.values().next().value : undefined;
++}
+diff --git a/tests/antigravityQuotaFallback.test.ts b/tests/antigravityQuotaFallback.test.ts
+index fddcab1..2101067 100644
+--- a/tests/antigravityQuotaFallback.test.ts
++++ b/tests/antigravityQuotaFallback.test.ts
+@@ -20,6 +20,21 @@ const response = (groups: unknown[]): ApiCallResult => ({
+   body: { groups },
+   bodyText: JSON.stringify({ groups }),
+ });
++const verificationUrl =
++  'https://accounts.google.com/v3/signin/continue?flow=Example%2Fflow&state=a%2Bb';
++const errorInfo = (url?: string, reason = 'VALIDATION_REQUIRED') => ({
++  '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
++  reason,
++  metadata: url === undefined ? {} : { validation_url: url },
++});
++const help = (...urls: string[]) => ({
++  '@type': 'type.googleapis.com/google.rpc.Help',
++  links: urls.map((url) => ({ url })),
++});
++const failure = (statusCode: number, ...details: unknown[]): ApiCallResult => {
++  const body = { error: { details } };
++  return { statusCode, header: {}, body, bodyText: JSON.stringify(body) };
++};
+ 
+ function mockResponses(responses: Array<ApiCallResult | Error>) {
+   const urls: string[] = [];
+@@ -43,6 +58,38 @@ afterEach(() => {
+   antigravitySubscriptionApi.get = originalSubscription;
+ });
+ 
++describe('Antigravity Google verification', () => {
++  test('carries the exact upstream URL through fallback without leaking it in the error text', async () => {
++    const urls = mockResponses([
++      failure(403, errorInfo(verificationUrl), help(verificationUrl)),
++      new Error('offline'),
++      failure(404),
++    ]);
++    const error = await ANTIGRAVITY_CONFIG.fetchQuota(file, t).catch((error: unknown) => error);
++    expect(error).toMatchObject({ status: 403, verificationUrl });
++    expect(String(error)).not.toContain(verificationUrl);
++    expect(urls).toEqual(ANTIGRAVITY_QUOTA_URLS);
++  });
++
++  test('rejects a non-Google link and a link without the validation reason', async () => {
++    mockResponses([
++      failure(403, errorInfo('https://accounts.google.com.example.test/v3/signin/continue')),
++      failure(403, errorInfo(verificationUrl, 'PERMISSION_DENIED')),
++      failure(404),
++    ]);
++    const error = await ANTIGRAVITY_CONFIG.fetchQuota(file, t).catch((error: unknown) => error);
++    expect(error).not.toHaveProperty('verificationUrl');
++  });
++
++  test('keeps the verification action when a fallback returns an empty quota', async () => {
++    mockResponses([failure(403, errorInfo(verificationUrl)), response([]), failure(404)]);
++    await expect(ANTIGRAVITY_CONFIG.fetchQuota(file, t)).rejects.toMatchObject({
++      status: 403,
++      verificationUrl,
++    });
++  });
++});
++
+ describe('Antigravity partial quota fallback', () => {
+   test('reaches production after partial daily responses and keeps the first bucket value', async () => {
+     const urls = mockResponses([
